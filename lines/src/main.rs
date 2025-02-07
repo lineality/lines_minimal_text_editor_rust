@@ -11,13 +11,13 @@ lines filename.txt
 
 or by default makes or opens in append-mode a file in 
 
-home/Documents/line_editor/yyyy_mm_dd
+home/Documents/lines_editor/yyyy_mm_dd
 
 
 defaults to default terminal size
 shows the bottom N rows of doc (maybe just the result of 
 ```bash
-tail home/Documents/line_editor/yyyy_mm_dd
+tail home/Documents/lines_editor/yyyy_mm_dd
 ```
 
 type and hit enter to
@@ -51,22 +51,58 @@ fn get_timestamp() -> io::Result<String> {
     Ok(format!("{:04}_{:02}_{:02}", year, month, day))
 }
 
-/// Gets the default file path for the line editor
-/// Creates a format like: home/Documents/line_editor/yyyy_mm_dd
+/// Gets or creates the default file path for the line editor.
+/// 
+/// Creates a directory structure and filename in the format:
+/// `{home}/Documents/lines_editor/yyyy_mm_dd.txt`
+/// where {home} is the user's home directory from $HOME or %USERPROFILE%
+///
+/// # Returns
+/// - `Ok(PathBuf)` - The complete path including filename with .txt extension
+/// - `Err(io::Error)` - If home directory cannot be found or directory creation fails
+///
+/// # Example path on Unix/Linux/Mac:
+/// `/home/username/Documents/lines_editor/2024_01_20.txt`
+///
+/// # Example path on Windows: 
+/// `C:\Users\username\Documents\lines_editor\2024_01_20.txt`
 fn get_default_filepath() -> io::Result<PathBuf> {
+    // Try to get home directory from environment variables
     let home = env::var("HOME").or_else(|_| env::var("USERPROFILE")).map_err(|e| {
         io::Error::new(io::ErrorKind::NotFound, format!("Could not find home directory: {}", e))
     })?;
     
+    // Build the base directory path
     let mut base_path = PathBuf::from(home);
     base_path.push("Documents");
-    base_path.push("line_editor");
+    base_path.push("lines_editor");
     
+    // Create all directories in the path if they don't exist
     fs::create_dir_all(&base_path)?;
     
-    let filename = get_timestamp()?;
+    // Get timestamp for filename and add .txt extension
+    let filename = format!("{}.txt", get_timestamp()?);
+    
+    // Join the base path with the filename
     Ok(base_path.join(filename))
 }
+
+// /// Gets the default file path for the line editor
+// /// Creates a format like: home/Documents/line_editor/yyyy_mm_dd
+// fn get_default_filepath() -> io::Result<PathBuf> {
+//     let home = env::var("HOME").or_else(|_| env::var("USERPROFILE")).map_err(|e| {
+//         io::Error::new(io::ErrorKind::NotFound, format!("Could not find home directory: {}", e))
+//     })?;
+    
+//     let mut base_path = PathBuf::from(home);
+//     base_path.push("Documents");
+//     base_path.push("lines_editor");
+    
+//     fs::create_dir_all(&base_path)?;
+    
+//     let filename = get_timestamp()?;
+//     Ok(base_path.join(filename))
+// }
 
 /// Displays the last n lines of the file
 /// Returns an IO Result to properly handle potential file reading errors
