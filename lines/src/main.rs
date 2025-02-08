@@ -11,21 +11,25 @@ lines filename.txt
 
 or by default makes or opens in append-mode a file in 
 
-home/Documents/lines_editor/yyyy_mm_dd
+home/Documents/lines_editor/yyyy_mm_dd.txt
 
 
 defaults to default terminal size
 shows the bottom N rows of doc (maybe just the result of 
 ```bash
-tail home/Documents/lines_editor/yyyy_mm_dd
+tail home/Documents/lines_editor/yyyy_mm_dd.txt
 ```
 
 type and hit enter to
-append \n\n and the new text line to the file
+append \n and the new text line to the file
 
 exit or quit or q to close program
 
-no unwrap etc.
+
+# Header
+The default header of the file is the date.
+If there is a header.txt file in the cwd, that file will be appended after the dae.
+
 */
 
 use std::env;
@@ -123,13 +127,54 @@ fn display_file_tail(file_path: &Path, num_lines: usize) -> io::Result<()> {
     Ok(())
 }
 
-/// Main editor loop that handles user input and file operations
-/// Provides basic text input functionality and handles exit commands
-fn editor_loop(file_path: &Path) -> io::Result<()> {
+/// Gets the header string for a new file
+/// Combines timestamp with optional header.txt content
+/// 
+/// # Returns
+/// - `Ok(String)` - Header string containing timestamp and optional header.txt content
+/// - `Err(io::Error)` - If there's an error reading header.txt (if it exists)
+fn get_header_text() -> io::Result<String> {
+    // Get timestamp for the default header
+    let timestamp = get_timestamp()?;
+    let mut header = format!("# {}\n", timestamp);
+
+    // Check for header.txt in current working directory
+    let header_path = Path::new("header.txt");
+    if header_path.exists() {
+        let header_content = fs::read_to_string(header_path)?;
+        header.push_str("\n");
+        header.push_str(&header_content);
+    }
+
+    Ok(header)
+}
+
+/// Creates a new file with header if it doesn't exist
+/// Returns the opened file in append mode
+fn create_or_open_file(file_path: &Path) -> io::Result<File> {
+    // Check if file exists
+    let file_exists = file_path.exists();
+    
+    // Open file in append mode
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(file_path)?;
+
+    // If it's a new file, write the header
+    if !file_exists {
+        let header = get_header_text()?;
+        writeln!(file, "{}\n", header)?;
+    }
+
+    Ok(file)
+}
+
+/// Main editor loop that handles user input and file operations
+/// Provides basic text input functionality and handles exit commands
+fn editor_loop(file_path: &Path) -> io::Result<()> {
+    
+    let mut file = create_or_open_file(file_path)?;
 
     // clear screen
     print!("\x1B[2J\x1B[1;1H");
@@ -156,7 +201,7 @@ fn editor_loop(file_path: &Path) -> io::Result<()> {
         }
 
         // Add two newlines and the input text
-        if let Err(e) = writeln!(file, "\n{}", trimmed) {
+        if let Err(e) = writeln!(file, "{}", trimmed) {
             eprintln!("Error writing to file: {}", e);
             continue;
         }
