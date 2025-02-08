@@ -42,22 +42,81 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
+// /// Gets a timestamp string in yyyy_mm_dd format using only standard library
+// fn get_timestamp() -> io::Result<String> {
+//     let time = std::time::SystemTime::now()
+//         .duration_since(std::time::UNIX_EPOCH)
+//         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    
+//     // Convert seconds to days since epoch and basic date math
+//     let days_since_epoch = time.as_secs() / (24 * 60 * 60);
+//     let year = 1970 + (days_since_epoch / 365);
+//     let day_of_year = days_since_epoch % 365;
+    
+//     // Very basic month calculation (not accounting for leap years)
+//     let month = (day_of_year / 30) + 1;
+//     let day = (day_of_year % 30) + 1;
+    
+//     Ok(format!("{:04}_{:02}_{:02}", year, month, day))
+// }
+
 /// Gets a timestamp string in yyyy_mm_dd format using only standard library
 fn get_timestamp() -> io::Result<String> {
     let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     
-    // Convert seconds to days since epoch and basic date math
-    let days_since_epoch = time.as_secs() / (24 * 60 * 60);
-    let year = 1970 + (days_since_epoch / 365);
-    let day_of_year = days_since_epoch % 365;
+    let secs = time.as_secs();
+    let days_since_epoch = secs / (24 * 60 * 60);
+
+    // These arrays help us handle different month lengths
+    let days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     
-    // Very basic month calculation (not accounting for leap years)
-    let month = (day_of_year / 30) + 1;
-    let day = (day_of_year % 30) + 1;
-    
+    let mut year = 1970;
+    let mut remaining_days = days_since_epoch;
+
+    // Calculate year
+    loop {
+        let year_length = if is_leap_year(year) { 366 } else { 365 };
+        if remaining_days < year_length {
+            break;
+        }
+        remaining_days -= year_length;
+        year += 1;
+    }
+
+    // Calculate month and day
+    let mut month = 1;
+    for (month_idx, &days) in days_in_month.iter().enumerate() {
+        let month_length = if month_idx == 1 && is_leap_year(year) {
+            29
+        } else {
+            days
+        };
+
+        if remaining_days < month_length {
+            break;
+        }
+        remaining_days -= month_length;
+        month += 1;
+    }
+
+    let day = remaining_days + 1;
+
     Ok(format!("{:04}_{:02}_{:02}", year, month, day))
+}
+
+/// Helper function to determine if a year is a leap year
+fn is_leap_year(year: u64) -> bool {
+    if year % 4 != 0 {
+        false
+    } else if year % 100 != 0 {
+        true
+    } else if year % 400 != 0 {
+        false
+    } else {
+        true
+    }
 }
 
 /// Displays the last n lines of the file
@@ -88,7 +147,7 @@ fn display_file_tail(file_path: &Path, num_lines: usize) -> io::Result<()> {
 fn get_header_text() -> io::Result<String> {
     // Get timestamp for the default header
     let timestamp = get_timestamp()?;
-    let mut header = format!("# {}\n", timestamp);
+    let mut header = format!("# {}", timestamp);
 
     // Check for header.txt in current working directory
     let header_path = Path::new("header.txt");
