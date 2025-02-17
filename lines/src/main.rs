@@ -280,8 +280,9 @@ fn append_line(file_path: &Path, line: &str) -> io::Result<()> {
 /// editor_loop(&path)?;
 /// ```
 fn editor_loop(file_path: &Path) -> io::Result<()> {
-    println!("Lines  '(q)uit' | 'exit'\n");
-    println!("File: {}", file_path.display());
+    print!("\x1B[2J\x1B[1;1H");
+    println!("lines text editor: Type 'q' to (q)uit");
+    println!("file path -> {}", file_path.display());
 
     let stdin = io::stdin();
     let mut input = String::new();
@@ -294,7 +295,7 @@ fn editor_loop(file_path: &Path) -> io::Result<()> {
     }
 
     // Display initial tail of file
-    println!("\nCurrent file content (last 10 lines):");
+    println!("Current file (last 10 lines) ->\n");
     if let Err(e) = display_file_tail(file_path, 10) {
         eprintln!("Error displaying file: {}", e);
     }
@@ -311,7 +312,7 @@ fn editor_loop(file_path: &Path) -> io::Result<()> {
 
         let trimmed = input.trim();
         
-        if trimmed == "q" || trimmed == "quit" || trimmed == "exit" {
+        if trimmed == "q" || trimmed == "quit" || trimmed == "exit" || trimmed == "exit()" {
             println!("Exiting editor...");
             break;
         }
@@ -326,7 +327,7 @@ fn editor_loop(file_path: &Path) -> io::Result<()> {
         }
         
         // Display the tail of the file after append
-        println!("\nUpdated file content (last 10 lines):");
+        println!("\nLast 10 lines of file ->");
         if let Err(e) = display_file_tail(file_path, 10) {
             eprintln!("Error displaying file: {}", e);
         }
@@ -334,51 +335,6 @@ fn editor_loop(file_path: &Path) -> io::Result<()> {
 
     Ok(())
 }
-
-// fn editor_loop(file_path: &Path) -> io::Result<()> {
-//     println!("Lines  '(q)uit' | 'exit'\n");
-//     println!("File: {}", file_path.display());
-
-//     let stdin = io::stdin();
-//     let mut input = String::new();
-
-//     // Create file with header if it doesn't exist
-//     if !file_path.exists() {
-//         let header = get_header_text()?;
-//         append_line(file_path, &header)?;
-//         append_line(file_path, "")?;  // blank line after header
-//     }
-
-//     loop {
-//         input.clear();
-//         print!("\x1B[2J\x1B[1;1H");
-        
-//         if let Err(e) = stdin.read_line(&mut input) {
-//             eprintln!("Error reading input: {}", e);
-//             continue;
-//         }
-
-//         let trimmed = input.trim();
-        
-//         if trimmed == "q" || trimmed == "quit" || trimmed == "exit" {
-//             println!("Exiting editor...");
-//             break;
-//         }
-
-//         // Append the line with temporary backup protection
-//         if let Err(e) = append_line(file_path, trimmed) {
-//             eprintln!("Error writing to file: {}", e);
-//             continue;
-//         }
-        
-//         // Display the tail of the file
-//         if let Err(e) = display_file_tail(file_path, 10) {
-//             eprintln!("Error displaying file: {}", e);
-//         }
-//     }
-
-//     Ok(())
-// }
 
 /// Gets or creates the default file path for the line editor.
 /// If a custom filename is provided, appends the date to it.
