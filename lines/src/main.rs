@@ -109,6 +109,18 @@ fn get_timestamp() -> io::Result<String> {
 }
 
 /// Helper function to determine if a year is a leap year
+/// Determines if a given year is a leap year using the Gregorian calendar rules
+/// 
+/// # Arguments
+/// * `year` - Year to check (CE/AD)
+/// 
+/// # Returns
+/// * `bool` - true if leap year, false if not
+/// 
+/// # Rules
+/// - Year is leap year if divisible by 4
+/// - Exception: century years must be divisible by 400
+/// - Years divisible by 100 but not 400 are not leap years
 fn is_leap_year(year: u64) -> bool {
     if year % 4 != 0 {
         false
@@ -121,8 +133,21 @@ fn is_leap_year(year: u64) -> bool {
     }
 }
 
-/// Displays the last n lines of the file
+/// Displays the last n lines of a file to standard output
 /// Returns an IO Result to properly handle potential file reading errors
+/// 
+/// # Arguments
+/// * `file_path` - Path to the file to display
+/// * `num_lines` - Number of lines to show from end of file
+/// 
+/// # Returns
+/// * `io::Result<()>` - Success or error status of the display operation
+/// 
+/// # Errors
+/// Returns error if:
+/// - File cannot be opened
+/// - File cannot be read
+/// - File content cannot be parsed as valid UTF-8
 fn display_file_tail(file_path: &Path, num_lines: usize) -> io::Result<()> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
@@ -146,8 +171,8 @@ fn display_file_tail(file_path: &Path, num_lines: usize) -> io::Result<()> {
 /// # Returns
 /// - `Ok(String)` - Header string containing timestamp and optional header.txt content
 /// - `Err(io::Error)` - If there's an error reading header.txt (if it exists)
-/// Gets the header string for a new file
-/// Combines timestamp with optional header.txt content
+/// Gets the header string for a new file          // <-- Duplicated line
+/// Combines timestamp with optional header.txt content  // <-- Duplicated line
 fn get_header_text() -> io::Result<String> {
     let timestamp = get_timestamp()?;
     let mut header = format!("# {}", timestamp);
@@ -225,6 +250,35 @@ fn append_line(file_path: &Path, line: &str) -> io::Result<()> {
     }
 }
 
+/// Main editing loop for the lines text editor
+/// 
+/// # Arguments
+/// * `file_path` - Path to the file being edited
+/// 
+/// # Returns
+/// * `io::Result<()>` - Success or error status of the editing session
+/// 
+/// # Behavior
+/// 1. Displays file path and basic commands
+/// 2. If file doesn't exist, creates it with timestamp header
+/// 3. Shows last 10 lines of current file content
+/// 4. Enters input loop where user can:
+///    - Type text and press enter to append a line
+///    - Enter 'q', 'quit', or 'exit' to close editor
+/// 5. After each append, displays updated last 10 lines
+/// 
+/// # Errors
+/// Returns error if:
+/// - Cannot create/access the file
+/// - Cannot read user input
+/// - Cannot append to file
+/// - Cannot display file contents
+/// 
+/// # Example
+/// ```no_run
+/// let path = Path::new("notes.txt");
+/// editor_loop(&path)?;
+/// ```
 fn editor_loop(file_path: &Path) -> io::Result<()> {
     println!("Lines  '(q)uit' | 'exit'\n");
     println!("File: {}", file_path.display());
@@ -239,9 +293,16 @@ fn editor_loop(file_path: &Path) -> io::Result<()> {
         append_line(file_path, "")?;  // blank line after header
     }
 
+    // Display initial tail of file
+    println!("\nCurrent file content (last 10 lines):");
+    if let Err(e) = display_file_tail(file_path, 10) {
+        eprintln!("Error displaying file: {}", e);
+    }
+
     loop {
         input.clear();
-        print!("\x1B[2J\x1B[1;1H");
+        print!("\n> "); // Add a prompt
+        io::stdout().flush()?; // Ensure prompt is displayed
         
         if let Err(e) = stdin.read_line(&mut input) {
             eprintln!("Error reading input: {}", e);
@@ -255,13 +316,17 @@ fn editor_loop(file_path: &Path) -> io::Result<()> {
             break;
         }
 
+        // Clear screen
+        print!("\x1B[2J\x1B[1;1H");
+        
         // Append the line with temporary backup protection
         if let Err(e) = append_line(file_path, trimmed) {
             eprintln!("Error writing to file: {}", e);
             continue;
         }
         
-        // Display the tail of the file
+        // Display the tail of the file after append
+        println!("\nUpdated file content (last 10 lines):");
         if let Err(e) = display_file_tail(file_path, 10) {
             eprintln!("Error displaying file: {}", e);
         }
@@ -269,6 +334,51 @@ fn editor_loop(file_path: &Path) -> io::Result<()> {
 
     Ok(())
 }
+
+// fn editor_loop(file_path: &Path) -> io::Result<()> {
+//     println!("Lines  '(q)uit' | 'exit'\n");
+//     println!("File: {}", file_path.display());
+
+//     let stdin = io::stdin();
+//     let mut input = String::new();
+
+//     // Create file with header if it doesn't exist
+//     if !file_path.exists() {
+//         let header = get_header_text()?;
+//         append_line(file_path, &header)?;
+//         append_line(file_path, "")?;  // blank line after header
+//     }
+
+//     loop {
+//         input.clear();
+//         print!("\x1B[2J\x1B[1;1H");
+        
+//         if let Err(e) = stdin.read_line(&mut input) {
+//             eprintln!("Error reading input: {}", e);
+//             continue;
+//         }
+
+//         let trimmed = input.trim();
+        
+//         if trimmed == "q" || trimmed == "quit" || trimmed == "exit" {
+//             println!("Exiting editor...");
+//             break;
+//         }
+
+//         // Append the line with temporary backup protection
+//         if let Err(e) = append_line(file_path, trimmed) {
+//             eprintln!("Error writing to file: {}", e);
+//             continue;
+//         }
+        
+//         // Display the tail of the file
+//         if let Err(e) = display_file_tail(file_path, 10) {
+//             eprintln!("Error displaying file: {}", e);
+//         }
+//     }
+
+//     Ok(())
+// }
 
 /// Gets or creates the default file path for the line editor.
 /// If a custom filename is provided, appends the date to it.
@@ -330,6 +440,40 @@ impl FileManager {
 }
 
 /// Detects the operating system and returns appropriate default file manager
+/// Detects and returns the default file manager for the current operating system
+/// 
+/// # Returns
+/// - `Ok(FileManager)` - Enum variant matching the system's default file manager
+/// - `Err(io::Error)` - If operating system is unsupported
+/// 
+/// # Platform-Specific Behavior
+/// ## Linux
+/// - GNOME: Returns Nautilus
+/// - KDE: Returns Dolphin  
+/// - XFCE: Returns Thunar
+/// - Default/Unknown: Falls back to Nautilus
+/// 
+/// ## Windows
+/// - Returns Explorer
+/// 
+/// ## macOS
+/// - Returns Finder
+/// 
+/// # Environment Variables Used
+/// - `XDG_CURRENT_DESKTOP`: Used on Linux to detect desktop environment
+/// 
+/// # Errors
+/// Returns error if:
+/// - Operating system is not Linux, Windows, or macOS
+/// - Unable to determine desktop environment on Linux
+/// 
+/// # Usage Example
+/// ```no_run
+/// let file_manager = get_default_file_manager()?;
+/// let command = file_manager.get_command();
+/// // Use command to open files/directories
+/// ```
+/// 
 fn get_default_file_manager() -> io::Result<FileManager> {
     let os = env::consts::OS;
     match os {

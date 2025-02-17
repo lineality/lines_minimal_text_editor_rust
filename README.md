@@ -55,3 +55,59 @@ alias lines='/home/COMPUTERNAME/lines_editor/lines'
 source ~/.bashrc
 ```
 or bash_profile
+
+
+# notes
+
+lines is minimal quick and clean text editor in rust
+
+cli
+
+This is a small-footprint no-load application.
+If a line is not being appendded,
+this appliation should not being doing anything with 
+the file in question.
+
+1. Only touch files when actively appending a new line
+2. Create a temporary backup only during the actual append operation
+3. Remove the backup immediately after successful append
+4. No persistent locks or ongoing state
+
+
+Append:
+/ 1. Creates temporary backup
+/ 2. Appends the line
+/ 3. Removes backup if successful
+/ 4. Restores from backup if append fails
+
+opens either to a target files as in 
+
+```bash
+lines filename.txt
+```
+or by default makes or opens in append-mode a file in 
+
+home/Documents/lines_editor/yyyy_mm_dd.txt
+
+defaults to default terminal size
+shows the bottom N rows of doc (maybe just the result of 
+```bash
+tail home/Documents/lines_editor/yyyy_mm_dd.txt
+```
+
+type and hit enter to
+append \n and the new text line to the file
+
+exit or quit or q to close program
+
+# Header
+The default header of the file is the date.
+If there is a header.txt file in same directroy as the binary file, 
+that file will be appended after the date.
+
+# filename
+open a filepath or type a new name
+```bash
+lines pta_meeting
+```
+This will create a file with name+date.txt as the filename.
