@@ -1,7 +1,27 @@
+// lines is minimal quick and clean text editor in rust
+// cargo build --profile release-small 
+
 /*
 lines is minimal quick and clean text editor in rust
 
 cli
+
+This is a small-footprint no-load application.
+If a line is not being appendded,
+this appliation should not being doing anything with 
+the file in question.
+
+1. Only touch files when actively appending a new line
+2. Create a temporary backup only during the actual append operation
+3. Remove the backup immediately after successful append
+4. No persistent locks or ongoing state
+
+
+Append:
+/ 1. Creates temporary backup
+/ 2. Appends the line
+/ 3. Removes backup if successful
+/ 4. Restores from backup if append fails
 
 opens either to a target files as in 
 
@@ -25,7 +45,8 @@ exit or quit or q to close program
 
 # Header
 The default header of the file is the date.
-If there is a header.txt file in the cwd, that file will be appended after the date.
+If there is a header.txt file in same directroy as the binary file, 
+that file will be appended after the date.
 
 # filename
 open a filepath or type a new name
@@ -34,31 +55,12 @@ lines pta_meeting
 ```
 This will create a file with name+date.txt as the filename.
 
-Note: the file date is odd
 */
 
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-
-// /// Gets a timestamp string in yyyy_mm_dd format using only standard library
-// fn get_timestamp() -> io::Result<String> {
-//     let time = std::time::SystemTime::now()
-//         .duration_since(std::time::UNIX_EPOCH)
-//         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-    
-//     // Convert seconds to days since epoch and basic date math
-//     let days_since_epoch = time.as_secs() / (24 * 60 * 60);
-//     let year = 1970 + (days_since_epoch / 365);
-//     let day_of_year = days_since_epoch % 365;
-    
-//     // Very basic month calculation (not accounting for leap years)
-//     let month = (day_of_year / 30) + 1;
-//     let day = (day_of_year % 30) + 1;
-    
-//     Ok(format!("{:04}_{:02}_{:02}", year, month, day))
-// }
 
 /// Gets a timestamp string in yyyy_mm_dd format using only standard library
 fn get_timestamp() -> io::Result<String> {
@@ -144,15 +146,30 @@ fn display_file_tail(file_path: &Path, num_lines: usize) -> io::Result<()> {
 /// # Returns
 /// - `Ok(String)` - Header string containing timestamp and optional header.txt content
 /// - `Err(io::Error)` - If there's an error reading header.txt (if it exists)
+/// Gets the header string for a new file
+/// Combines timestamp with optional header.txt content
 fn get_header_text() -> io::Result<String> {
-    // Get timestamp for the default header
     let timestamp = get_timestamp()?;
     let mut header = format!("# {}", timestamp);
 
-    // Check for header.txt in current working directory
-    let header_path = Path::new("header.txt");
+    // Get the executable's directory
+    let exe_path = env::current_exe()?;
+    let exe_dir = exe_path.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, "Could not determine executable directory")
+    })?;
+
+    // Check for header.txt in the executable's directory
+    let header_path = exe_dir.join("header.txt");
+    
+    // Also check in the current working directory as fallback
+    let current_dir_header = Path::new("header.txt");
+
     if header_path.exists() {
         let header_content = fs::read_to_string(header_path)?;
+        header.push_str("  ");
+        header.push_str(&header_content);
+    } else if current_dir_header.exists() {
+        let header_content = fs::read_to_string(current_dir_header)?;
         header.push_str("  ");
         header.push_str(&header_content);
     }
@@ -160,45 +177,72 @@ fn get_header_text() -> io::Result<String> {
     Ok(header)
 }
 
-/// Creates a new file with header if it doesn't exist
-/// Returns the opened file in append mode
-fn create_or_open_file(file_path: &Path) -> io::Result<File> {
-    // Check if file exists
-    let file_exists = file_path.exists();
-    
-    // Open file in append mode
-    let mut file = OpenOptions::new()
+/// Appends a single line to the file with temporary backup protection
+/// 
+/// # Arguments
+/// * `file_path` - Path to the file being appended to
+/// * `line` - Text line to append
+/// 
+/// # Behavior
+/// 1. Creates temporary backup
+/// 2. Appends the line
+/// 3. Removes backup if successful
+/// 4. Restores from backup if append fails
+fn append_line(file_path: &Path, line: &str) -> io::Result<()> {
+    // Create temporary backup before modification
+    let backup_path = if file_path.exists() {
+        let bak_path = file_path.with_extension("bak");
+        fs::copy(file_path, &bak_path)?;
+        Some(bak_path)
+    } else {
+        None
+    };
+
+    // Attempt to append the line
+    let result = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(file_path)?;
+        .open(file_path)
+        .and_then(|mut file| writeln!(file, "{}", line));
 
-    // If it's a new file, write the header
-    if !file_exists {
-        let header = get_header_text()?;
-        writeln!(file, "{}\n", header)?;
+    // Handle the result
+    match result {
+        Ok(_) => {
+            // Success: remove backup if it exists
+            if let Some(bak_path) = backup_path {
+                fs::remove_file(bak_path)?;
+            }
+            Ok(())
+        }
+        Err(e) => {
+            // Failure: restore from backup if it exists
+            if let Some(bak_path) = backup_path {
+                fs::copy(&bak_path, file_path)?;
+                fs::remove_file(bak_path)?;
+            }
+            Err(e)
+        }
     }
-
-    Ok(file)
 }
 
-/// Main editor loop that handles user input and file operations
-/// Provides basic text input functionality and handles exit commands
 fn editor_loop(file_path: &Path) -> io::Result<()> {
-    
-    let mut file = create_or_open_file(file_path)?;
-
-    // clear screen
-    print!("\x1B[2J\x1B[1;1H");
-
     println!("Lines  '(q)uit' | 'exit'\n");
     println!("File: {}", file_path.display());
 
     let stdin = io::stdin();
     let mut input = String::new();
 
+    // Create file with header if it doesn't exist
+    if !file_path.exists() {
+        let header = get_header_text()?;
+        append_line(file_path, &header)?;
+        append_line(file_path, "")?;  // blank line after header
+    }
+
     loop {
         input.clear();
         print!("\x1B[2J\x1B[1;1H");
+        
         if let Err(e) = stdin.read_line(&mut input) {
             eprintln!("Error reading input: {}", e);
             continue;
@@ -211,8 +255,8 @@ fn editor_loop(file_path: &Path) -> io::Result<()> {
             break;
         }
 
-        // Add two newlines and the input text
-        if let Err(e) = writeln!(file, "{}", trimmed) {
+        // Append the line with temporary backup protection
+        if let Err(e) = append_line(file_path, trimmed) {
             eprintln!("Error writing to file: {}", e);
             continue;
         }
@@ -262,17 +306,133 @@ fn get_default_filepath(custom_name: Option<&str>) -> io::Result<PathBuf> {
     Ok(base_path.join(filename))
 }
 
-/// Main function that initializes the editor and handles command-line arguments
+/// Represents supported file managers and their launch commands
+#[derive(Debug)]
+enum FileManager {
+    Nautilus,
+    Dolphin,
+    Thunar,
+    Explorer,
+    Finder,
+}
+
+impl FileManager {
+    /// Converts the FileManager enum to its launch command string
+    fn get_command(&self) -> &str {
+        match self {
+            FileManager::Nautilus => "nautilus",
+            FileManager::Dolphin => "dolphin",
+            FileManager::Thunar => "thunar",
+            FileManager::Explorer => "explorer",
+            FileManager::Finder => "open",
+        }
+    }
+}
+
+/// Detects the operating system and returns appropriate default file manager
+fn get_default_file_manager() -> io::Result<FileManager> {
+    let os = env::consts::OS;
+    match os {
+        "linux" => {
+            // Check for common Linux desktop environments
+            if let Ok(desktop) = env::var("XDG_CURRENT_DESKTOP") {
+                match desktop.to_uppercase().as_str() {
+                    "GNOME" => Ok(FileManager::Nautilus),
+                    "KDE" => Ok(FileManager::Dolphin),
+                    "XFCE" => Ok(FileManager::Thunar),
+                    _ => Ok(FileManager::Nautilus), // Default to Nautilus
+                }
+            } else {
+                Ok(FileManager::Nautilus)
+            }
+        }
+        "windows" => Ok(FileManager::Explorer),
+        "macos" => Ok(FileManager::Finder),
+        _ => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!("Unsupported operating system: {}", os),
+        )),
+    }
+}
+
+/// Opens the specified directory in the system's file manager
+/// 
+/// # Arguments
+/// * `directory` - Path to the directory to open
+/// * `file_manager` - Optional specific file manager to use
+/// 
+/// # Returns
+/// * `io::Result<()>` - Success or error opening the file manager
+fn open_in_file_manager(directory: &Path, file_manager: Option<FileManager>) -> io::Result<()> {
+    // Ensure the directory exists
+    if !directory.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Directory does not exist",
+        ));
+    }
+
+    let fm = match file_manager {
+        Some(fm) => fm,
+        None => get_default_file_manager()?,
+    };
+
+    // Prepare the command and arguments
+    let command = fm.get_command();
+    let dir_str = directory.to_string_lossy();
+
+    // Execute the file manager command
+    match std::process::Command::new(command)
+        .arg(&*dir_str)
+        .spawn() {
+            Ok(_) => {
+                println!("Opened {} in {:?}", dir_str, fm);
+                Ok(())
+            }
+            Err(e) => Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to open file manager: {}", e),
+            )),
+        }
+}
+
+/// Lines - A minimal text editor for quick append-only notes
+/// 
+/// # Usage
+///   lines [FILENAME | COMMAND]
+/// 
+/// # Commands
+///   --files     Open file manager at notes directory
+/// 
+/// # File Handling
+/// - Without arguments: Creates/opens yyyy_mm_dd.txt in ~/Documents/lines_editor/
+/// - With filename: Creates/opens filename_yyyy_mm_dd.txt in ~/Documents/lines_editor/
+/// - With path: Uses exact path if file exists
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     
+    if args.len() > 1 {
+        match args[1].as_str() {
+            "files" | "--files" => {
+                let dir_path = if args.len() > 2 {
+                    PathBuf::from(&args[2])
+                } else {
+                    get_default_filepath(None)?.parent().ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::NotFound, "Could not determine parent directory")
+                    })?.to_path_buf()
+                };
+                return open_in_file_manager(&dir_path, None);
+            },
+            _ => {}
+        }
+    }
+
+    // Original file editing logic...
     let file_path = if args.len() > 1 {
-        // Check if the argument points to an existing file
         let arg_path = PathBuf::from(&args[1]);
         if arg_path.exists() {
             arg_path
         } else {
-            // If file doesn't exist, use the argument as a custom filename
             get_default_filepath(Some(&args[1]))?
         }
     } else {
